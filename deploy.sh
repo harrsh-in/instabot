@@ -1,9 +1,9 @@
 #!/bin/bash
-# Production deployment script
+# Production deployment script for Instagram Auto-Reply Service
 
 set -e
 
-echo "🚀 Deploying Instagram Webhook Server..."
+echo "🚀 Deploying Instagram Auto-Reply Service..."
 
 # Load environment variables from .env file if it exists
 if [ -f .env ]; then
@@ -12,13 +12,14 @@ if [ -f .env ]; then
     source .env
     set +a
 else
-    echo "⚠️  Warning: .env file not found. Using existing environment variables."
+    echo "❌ Error: .env file not found. Please create one from .env.example"
+    exit 1
 fi
 
 # Check required environment variables
 check_env() {
     if [ -z "$1" ]; then
-        echo "❌ Error: $2 not set"
+        echo "❌ Error: $2 not set in .env file"
         exit 1
     fi
 }
@@ -29,8 +30,14 @@ check_env "$META_APP_SECRET" "META_APP_SECRET"
 check_env "$META_REDIRECT_URI" "META_REDIRECT_URI"
 check_env "$META_VERIFY_TOKEN" "META_VERIFY_TOKEN"
 
-# Create data directories
-mkdir -p data/instance data/logs
+# Validate SECRET_KEY length
+if [ ${#FLASK_SECRET_KEY} -lt 32 ]; then
+    echo "❌ Error: FLASK_SECRET_KEY must be at least 32 characters long"
+    exit 1
+fi
+
+# Create data directory
+mkdir -p data
 
 # Build and deploy
 echo "📦 Building Docker image..."
@@ -47,7 +54,11 @@ sleep 5
 
 # Check if container is running
 if docker compose ps | grep -q "Up"; then
+    echo ""
     echo "✅ Deployment successful!"
+    echo ""
+    echo "🔒 Container binds to localhost:8000 (not exposed to internet)"
+    echo "🌐 Service URL: https://www.pysend.com (via nginx reverse proxy)"
     echo ""
     echo "📊 Container status:"
     docker compose ps

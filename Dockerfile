@@ -5,9 +5,11 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies (for cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libffi-dev \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
@@ -22,14 +24,14 @@ WORKDIR /app
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy only necessary files from builder
+# Copy installed dependencies from builder
 COPY --from=builder /root/.local /home/appuser/.local
 
 # Copy application code
-COPY app.py db.py legal.py wsgi.py ./
+COPY app.py models.py meta_service.py auth.py webhooks.py token_store.py legal.py wsgi.py ./
 
-# Create directories and set permissions
-RUN mkdir -p instance logs && chown -R appuser:appuser /app && chmod 755 /app/logs /app/instance
+# Create data directory and set permissions
+RUN mkdir -p data && chown -R appuser:appuser /app && chmod 755 /app/data
 
 # Switch to non-root user
 USER appuser
@@ -40,7 +42,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_ENV=production
 
-# Expose port
+# Expose port 8000
 EXPOSE 8000
 
 # Health check

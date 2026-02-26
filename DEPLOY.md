@@ -1,94 +1,150 @@
 # Production Deployment Guide
 
-## 🚀 Quick Deploy with Docker
+## Architecture
 
-### 1. Set Environment Variables
-
-Create a `.env` file with production values:
-
-```bash
-# Flask Configuration
-FLASK_SECRET_KEY=your-super-secret-production-key-min-32-chars
-
-# Meta App Credentials (from developers.facebook.com)
-META_APP_ID=your-app-id
-META_APP_SECRET=your-app-secret
-META_REDIRECT_URI=https://yourdomain.com/instagram/auth/callback
-META_VERIFY_TOKEN=your-random-verify-token
-
-# Production Settings
-FLASK_ENV=production
-FLASK_DEBUG=false
+```
+Internet
+    ↓ HTTPS (443)
+Nginx (Reverse Proxy)
+    ↓ HTTP (localhost:8000)
+Docker Container (Flask App)
+    ↓
+SQLite Database
 ```
 
-### 2. Deploy
+**Security**: The Flask app binds to `127.0.0.1:8000` only - it's not accessible from the internet directly. Nginx handles SSL termination and proxies requests internally.
+
+---
+
+## 🚀 Quick Deploy
+
+### 1. Configure Environment
 
 ```bash
-# Make deploy script executable
-chmod +x deploy.sh
+cp .env.example .env
+nano .env
+```
 
-# Run deployment
+Required values:
+```env
+FLASK_SECRET_KEY=<openssl rand -hex 32>
+META_APP_ID=your-meta-app-id
+META_APP_SECRET=your-meta-app-secret
+META_VERIFY_TOKEN=<openssl rand -hex 16>
+META_REDIRECT_URI=https://www.pysend.com/instagram/auth/callback
+```
+
+### 2. Deploy Docker Container
+
+```bash
 ./deploy.sh
-```
-
-Or manually with Docker Compose:
-
-```bash
-# Build and start
+# or
 docker-compose up -d --build
-
-# Check logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
 ```
 
-### 3. Verify Deployment
+The container binds to **localhost:8000 only** - not exposed to the internet.
 
+### 3. Configure Nginx
+
+Add to your nginx config (e.g., `/etc/nginx/sites-available/pysend.com`):
+
+```nginx
+server {
+    listen 80;
+    server_name www.pysend.com pysend.com;
+    
+    # Redirect HTTP to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name www.pysend.com pysend.com;
+
+    # SSL certificates (Let's Encrypt or your provider)
+    ssl_certificate /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+    
+    # SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Proxy to Flask app (localhost only - not exposed externally)
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+}
+```
+
+Test and reload nginx:
 ```bash
-# Health check
-curl https://yourdomain.com/health
-
-# Check auth status
-curl https://yourdomain.com/instagram/auth/status
+nginx -t
+systemctl reload nginx
 ```
 
-## 📋 Pre-Deployment Checklist
+---
 
-### Meta App Settings (https://developers.facebook.com/apps/)
+## 📋 Meta App Configuration
 
-#### 1. OAuth Redirect URI (CRITICAL)
-This MUST match exactly in your Meta App settings:
+### OAuth Redirect URI
+**Location:** Facebook Login → Settings
 
-**Go to:** Products → Facebook Login → Settings
-
-**Add to "Valid OAuth Redirect URIs":**
 ```
-https://yourdomain.com/instagram/auth/callback
+https://www.pysend.com/instagram/auth/callback
 ```
 
-⚠️ **Important:**
-- Must include the **full path** `/instagram/auth/callback`
-- Must use **HTTPS** in production
-- Must match `META_REDIRECT_URI` in your `.env` file exactly
-- Trailing slash matters! `/callback` ≠ `/callback/`
+### Webhook Configuration
+**Location:** Webhooks → Instagram
 
-#### 2. Other Settings
-- [ ] Meta App is in **Live Mode**
-- [ ] All required permissions approved (`instagram_basic`, `instagram_manage_comments`, `business_management`)
-- [ ] Webhook callback URL configured: `https://yourdomain.com/instagram/webhook`
-- [ ] Webhook fields subscribed (`comments`, `mentions`)
-- [ ] HTTPS enabled (required for webhooks)
-- [ ] Environment variables set correctly
-- [ ] `SKIP_WEBHOOK_SIGNATURE` is **NOT** set (or set to `false`)
+| Setting | Value |
+|---------|-------|
+| Callback URL | `https://www.pysend.com/webhook/instagram` |
+| Verify Token | From `.env` file |
+| Fields | `mentions`, `comments` |
 
-## 🔐 Security Notes
+### Required URLs
 
-1. **App Secret**: Never commit to git. Use environment variables.
-2. **Database**: SQLite is persisted in `./data/instance/`
-3. **Logs**: Stored in `./data/logs/`
-4. **Non-root user**: Container runs as `appuser` for security
+| Page | URL |
+|------|-----|
+| Privacy Policy | `https://www.pysend.com/privacy` |
+| Terms of Service | `https://www.pysend.com/terms` |
+
+---
+
+## 🔐 Security
+
+### Network Isolation
+- Flask app only accessible via `127.0.0.1:8000`
+- No direct internet exposure
+- Nginx handles SSL/TLS termination
+
+### Token Encryption
+- AES-256 encryption for all access tokens
+- Keys derived via PBKDF2 (100k iterations)
+- Encrypted at rest in Docker volume
+
+### Webhook Verification
+- SHA-256 HMAC signature verification
+- Rejects requests with invalid signatures
+
+---
 
 ## 📊 Monitoring
 
@@ -96,12 +152,20 @@ https://yourdomain.com/instagram/auth/callback
 # View logs
 docker-compose logs -f
 
+# Health check (via nginx)
+curl https://www.pysend.com/health
+
+# Health check (direct, localhost only)
+curl http://127.0.0.1:8000/health
+
 # Container stats
 docker stats instagram-webhook
 
-# Restart service
-docker-compose restart
+# Database access
+docker exec -it instagram-webhook sqlite3 /app/data/instagram_service.db
 ```
+
+---
 
 ## 🔄 Updates
 
@@ -109,47 +173,57 @@ docker-compose restart
 # Pull latest code
 git pull
 
-# Rebuild and deploy
+# Rebuild and restart
 ./deploy.sh
+
+# Or manually:
+docker-compose down
+docker-compose up -d --build
+
+# Reload nginx (if config changed)
+systemctl reload nginx
 ```
+
+---
 
 ## 🐛 Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Webhook signature invalid | Verify `META_APP_SECRET` matches Meta Dashboard |
-| OAuth fails | Check `META_REDIRECT_URI` matches exactly (including HTTPS) |
-| Database not persisting | Check `./data/instance/` permissions |
-| Port already in use | Change port in `docker-compose.yml` |
+| 502 Bad Gateway | Check container is running: `docker-compose ps` |
+| Webhook fails | Verify `META_APP_SECRET` matches Meta Dashboard |
+| OAuth fails | Check redirect URI uses HTTPS exactly as configured |
+| SSL errors | Verify certificates in nginx config |
+| Permission denied | Check `data/` volume permissions |
 
-## 📖 Meta App Configuration
+---
 
-### Step 1: OAuth Redirect URI (MUST DO FIRST)
+## 📁 File Structure on Server
 
-**Location:** https://developers.facebook.com/apps/YOUR_APP_ID/fb-login/settings/
+```
+/opt/pysend/                    # Your project directory
+├── docker-compose.yml
+├── Dockerfile
+├── .env                        # Secrets (not in git)
+└── data/                       # Database volume
+    └── instagram_service.db
 
-| Setting | Value |
-|---------|-------|
-| **Valid OAuth Redirect URIs** | `https://yourdomain.com/instagram/auth/callback` |
+/etc/nginx/sites-available/     # Nginx config
+└── pysend.com
 
-**Why this matters:** During OAuth, Meta redirects the user to this URL after authentication. If it's not configured exactly, OAuth will fail with "Can't Load URL" error.
+/var/log/nginx/                 # Nginx logs
+└── access.log / error.log
+```
 
-### Step 2: Webhook Configuration
+---
 
-**Location:** https://developers.facebook.com/apps/YOUR_APP_ID/webhooks/
+## ✅ Pre-Deployment Checklist
 
-| Setting | Value |
-|---------|-------|
-| **Callback URL** | `https://yourdomain.com/instagram/webhook` |
-| **Verify Token** | Same as `META_VERIFY_TOKEN` in `.env` |
-| **Fields to Subscribe** | `comments`, `mentions` |
-
-### Required Permissions
-
-**Location:** https://developers.facebook.com/apps/YOUR_APP_ID/app-review/permissions/
-
-Required permissions for production:
-- `instagram_basic`
-- `instagram_manage_comments`
-- `business_management` (if using Business Manager)
-- `pages_read_engagement`
+- [ ] `.env` file created with production values
+- [ ] `FLASK_SECRET_KEY` is 32+ characters
+- [ ] `META_REDIRECT_URI` uses HTTPS
+- [ ] Nginx config has SSL certificates
+- [ ] Nginx proxy_pass to `127.0.0.1:8000`
+- [ ] Meta App in Live Mode
+- [ ] Webhook URL configured in Meta Dashboard
+- [ ] Privacy & Terms pages accessible

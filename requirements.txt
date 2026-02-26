@@ -1,54 +1,25 @@
-# Flask Meta API Integration - Production Requirements
-# =====================================================
-# 
-# Installation:
-#   Development: pip install -r requirements.txt
-#   Production:  pip install -r requirements.txt --no-dev (if using pip-tools)
-#
+# Instagram Auto-Reply Service - Python Requirements
+# ==================================================
+# Install with: pip install -r requirements.txt
 # Python Version: >= 3.9
 
-# Core Framework
-# --------------
+# Core Flask Framework
 flask>=3.0.0,<4.0.0
 werkzeug>=3.0.0,<4.0.0
 
-# HTTP Client for Meta API
-# ------------------------
+# Database
+flask-sqlalchemy>=3.1.0,<4.0.0
+sqlalchemy>=2.0.0,<3.0.0
+
+# HTTP Client
 requests>=2.31.0,<3.0.0
 urllib3>=2.0.0,<3.0.0
 
-# Production WSGI Server
-# ----------------------
-# Gunicorn is the recommended WSGI server for production deployments.
-# Usage: gunicorn -w 4 -b 0.0.0.0:8000 wsgi:application
-gunicorn>=21.0.0,<23.0.0
+# Security - Required for token encryption
+cryptography>=42.0.0
 
-# Environment Configuration (Development Only)
-# --------------------------------------------
-# python-dotenv loads .env files in development.
-# In production, use actual environment variables or a secrets manager.
+# Environment Configuration
 python-dotenv>=1.0.0,<2.0.0
 
-# Security Enhancements
-# ---------------------
-# Uncomment for additional security headers in production
-# flask-talisman>=1.0.0,<2.0.0  # HTTPS enforcement, security headers
-# bleach>=6.0.0,<7.0.0          # HTML sanitization if needed
-
-# Logging & Monitoring (Optional)
-# -------------------------------
-# structlog>=23.0.0,<25.0.0      # Structured logging
-# sentry-sdk[flask]>=1.30.0     # Error tracking
-
-# Caching (Optional)
-# ------------------
-# flask-caching>=2.0.0,<3.0.0   # Response caching
-# redis>=5.0.0,<6.0.0           # Redis cache backend
-
-# Development & Testing (Optional)
-# --------------------------------
-# pytest>=7.0.0,<9.0.0          # Testing framework
-# pytest-flask>=1.2.0,<2.0.0    # Flask test utilities
-# black>=23.0.0,<25.0.0         # Code formatting
-# flake8>=6.0.0,<8.0.0          # Linting
-# mypy>=1.0.0,<2.0.0            # Type checking
+# Production WSGI Server
+gunicorn>=21.0.0,<23.0.0

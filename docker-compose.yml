@@ -6,13 +6,14 @@ services:
     image: instagram-webhook-app:latest
     container_name: instagram-webhook
     restart: unless-stopped
+    # Bind to localhost only - nginx will proxy to this
+    # External traffic cannot reach the container directly
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     volumes:
-      - app-data:/app/instance
-      - app-logs:/app/logs
+      - app-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
       interval: 30s
@@ -22,4 +23,3 @@ services:
 
 volumes:
   app-data:
-  app-logs:
